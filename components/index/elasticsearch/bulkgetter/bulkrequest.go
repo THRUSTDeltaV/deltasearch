@@ -18,8 +18,8 @@ var ErrHTTP = errors.New("HTTP Error")
 
 type bulkRequest map[string]reqresp
 
-func newBulkRequest() bulkRequest {
-	return make(bulkRequest)
+func newBulkRequest(size int) bulkRequest {
+	return make(bulkRequest, size)
 }
 
 func (r bulkRequest) sendBulkResponse(found bool, err error) {
@@ -31,9 +31,9 @@ func (r bulkRequest) sendBulkResponse(found bool, err error) {
 }
 
 type responseDoc struct {
-	Index  string          `json:_index`
-	ID     string          `json:_id`
-	Found  bool            `json:found`
+	Index  string          `json:"_index"`
+	ID     string          `json:"_id"`
+	Found  bool            `json:"found"`
 	Source json.RawMessage `json:"_source"`
 }
 
@@ -74,12 +74,14 @@ func (r bulkRequest) getReqBody() io.Reader {
 	//   ]
 	// }
 
+	type source struct {
+		Include []string `json:"include"`
+	}
+
 	type doc struct {
-		Index  string `json:_index`
-		ID     string `json:_id`
-		Source struct {
-			Include []string `json:include`
-		} `json:_source`
+		Index  string `json:"_index"`
+		ID     string `json:"_id"`
+		Source source `json:"_source"`
 	}
 
 	docs := make([]doc, len(r))
@@ -89,9 +91,7 @@ func (r bulkRequest) getReqBody() io.Reader {
 		docs[i] = doc{
 			Index: rr.req.Index,
 			ID:    rr.req.DocumentID,
-			Source: struct {
-				Include []string `json:include`
-			}{
+			Source: source{
 				rr.req.Fields,
 			},
 		}
@@ -100,7 +100,7 @@ func (r bulkRequest) getReqBody() io.Reader {
 	}
 
 	bodyStruct := struct {
-		Docs []doc `json:docs`
+		Docs []doc `json:"docs"`
 	}{docs}
 
 	var buffer bytes.Buffer
@@ -127,7 +127,7 @@ func (r bulkRequest) getRequest() *opensearchapi.MgetRequest {
 
 func decodeResponse(res *opensearchapi.Response) ([]responseDoc, error) {
 	response := struct {
-		Docs []responseDoc `json:docs`
+		Docs []responseDoc `json:"docs"`
 	}{}
 
 	if err := json.NewDecoder(res.Body).Decode(&response); err != nil {
@@ -170,46 +170,48 @@ func (r bulkRequest) processResponse(res *opensearchapi.Response) error {
 	//   ]
 	// }
 
-	// Old
+	var err error
+
 	switch res.StatusCode {
 	case 200:
 		// Found
 
 		docs, err := decodeResponse(res)
 		if err != nil {
+			err = fmt.Errorf("error decoding body: %w", err)
 			r.sendBulkResponse(false, err)
-			return fmt.Errorf("error decoding body: %w", err)
+			return err
 		}
 
 		for _, d := range docs {
 			key := keyFromResponseDoc(d)
 
-			if err := json.Unmarshal(d.Source, r[key].dst); err != nil {
-				err = fmt.Errorf("error decoding source: %w", err)
-				r.sendResponse(key, false, err)
+			if d.Found == true {
+				if err = json.Unmarshal(d.Source, r[key].dst); err != nil {
+					err = fmt.Errorf("error decoding source: %w", err)
+					r.sendResponse(key, false, err)
+					return err
+				}
 
-				return err
+				r.sendResponse(key, true, nil)
+			} else {
+				r.sendResponse(key, false, nil)
 			}
-
-			// Note: this removes items from bulkRequest, so that a bulk 404 works.
-			r.sendResponse(key, true, nil)
 		}
-
-	case 404:
-		// None found, pass so below we can mark all remaining documents as not found.
 
 	default:
 		if res.IsError() {
-			return fmt.Errorf("%w: %s", ErrHTTP, res)
+			err = fmt.Errorf("%w: %s", ErrHTTP, res)
+		} else {
+			err = fmt.Errorf("Unexpected HTTP return code: %d", res.StatusCode)
 		}
 	}
 
-	r.sendBulkResponse(false, nil)
-
-	return nil
+	r.sendBulkResponse(false, err)
+	return err
 }
 
-func (r bulkRequest) performBulkRequest(ctx context.Context, client *opensearch.Client) error {
+func (r bulkRequest) execute(ctx context.Context, client *opensearch.Client) error {
 	log.Printf("Performing bulk GET, %d elements", len(r))
 
 	res, err := r.getRequest().Do(ctx, client)

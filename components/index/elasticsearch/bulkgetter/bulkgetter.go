@@ -58,7 +58,7 @@ func (bg *BulkGetter) Work(ctx context.Context) error {
 
 func (bg *BulkGetter) processBatch(ctx context.Context) error {
 	var (
-		b   batch
+		b   bulkRequest
 		err error
 	)
 
@@ -73,10 +73,10 @@ func (bg *BulkGetter) processBatch(ctx context.Context) error {
 	return b.execute(ctx, bg.cfg.Client)
 }
 
-func (bg *BulkGetter) populateBatch(ctx context.Context, queue <-chan reqresp) (batch, error) {
+func (bg *BulkGetter) populateBatch(ctx context.Context, queue <-chan reqresp) (bulkRequest, error) {
 	// log.Println("Populating BulkGetter batch.")
 
-	b := newBatch(bg.cfg.BatchSize)
+	b := newBulkRequest(bg.cfg.BatchSize)
 
 	for i := 0; i < bg.cfg.BatchSize; i++ {
 		select {
