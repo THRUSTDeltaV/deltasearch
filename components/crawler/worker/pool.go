@@ -113,9 +113,9 @@ func (w *Pool) getIndexes(ctx context.Context) (*crawler.Indexes, error) {
 
 	// Start ES workers
 	go startSearchWorker(ctx, esClient)
-	go startSearchWorker(ctx, esClient)
-	go startSearchWorker(ctx, esClient)
-	go startSearchWorker(ctx, esClient)
+	// go startSearchWorker(ctx, esClient)
+	// go startSearchWorker(ctx, esClient)
+	// go startSearchWorker(ctx, esClient)
 
 	return &crawler.Indexes{
 		Files: elasticsearch.New(
