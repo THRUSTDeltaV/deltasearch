@@ -30,7 +30,7 @@ import (
 //
 // https://pkg.go.dev/github.com/opensearch-project/opensearch-go@v1.1.0/opensearchapi#Mget
 
-
+// string combines fields with index
 type batch map[string]bulkRequest
 
 func getKey(rr reqresp) string {

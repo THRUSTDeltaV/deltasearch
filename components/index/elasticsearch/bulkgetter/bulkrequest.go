@@ -15,6 +15,7 @@ import (
 // ErrHTTP represents non-404 errors in HTTP requests.
 var ErrHTTP = errors.New("HTTP Error")
 
+// string indexes DocumentID
 type bulkRequest map[string]reqresp
 
 func newBulkRequest() bulkRequest {
