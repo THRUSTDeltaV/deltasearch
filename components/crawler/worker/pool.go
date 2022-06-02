@@ -79,7 +79,7 @@ func (w *Pool) getSearchClient() (*elasticsearch.Client, error) {
 		Transport: utils.GetHTTPTransport(w.dialer.DialContext, 100),
 		Debug:     false,
 
-		BulkGetterBatchSize:    96,
+		BulkGetterBatchSize:    48,
 		BulkGetterBatchTimeout: 150 * time.Millisecond,
 	}
 
