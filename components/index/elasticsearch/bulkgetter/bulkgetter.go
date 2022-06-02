@@ -2,6 +2,7 @@ package bulkgetter
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"time"
 
@@ -58,36 +59,37 @@ func (bg *BulkGetter) Work(ctx context.Context) error {
 
 func (bg *BulkGetter) processBatch(ctx context.Context) error {
 	var (
-		b   bulkRequest
+		b   *bulkRequest
 		err error
 	)
 
 	if b, err = bg.populateBatch(ctx, bg.queue); err != nil {
+		err = fmt.Errorf("error populating batch: %w", err)
 		return err
 	}
 
-	if len(b) == 0 {
+	if len(b.rrs) == 0 {
 		return nil
 	}
 
 	return b.execute(ctx, bg.cfg.Client)
 }
 
-func (bg *BulkGetter) populateBatch(ctx context.Context, queue <-chan reqresp) (bulkRequest, error) {
-	// log.Println("Populating BulkGetter batch.")
+func (bg *BulkGetter) populateBatch(ctx context.Context, queue <-chan reqresp) (*bulkRequest, error) {
+	log.Println("Populating BulkGetter batch.")
 
 	b := newBulkRequest(bg.cfg.BatchSize)
 
 	for i := 0; i < bg.cfg.BatchSize; i++ {
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return b, ctx.Err()
 		case <-time.After(bg.cfg.BatchTimeout):
-			// log.Printf("Batch timeout, %d elements", len(b))
+			log.Printf("Batch timeout, %d elements", len(b.rrs))
 
 			return b, nil
 		case rr := <-queue:
-			// log.Printf("Batch add, %d elements", len(b))
+			log.Printf("Batch add, %d elements", len(b.rrs))
 
 			b.add(rr)
 		}

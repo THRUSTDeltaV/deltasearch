@@ -22,13 +22,13 @@ type bulkRequest struct {
 	decodeMutex sync.Mutex
 }
 
-func newBulkRequest(size int) bulkRequest {
-	return bulkRequest{
+func newBulkRequest(size int) *bulkRequest {
+	return &bulkRequest{
 		rrs: make(map[string]reqresp, size),
 	}
 }
 
-func (r bulkRequest) sendBulkResponse(found bool, err error) {
+func (r *bulkRequest) sendBulkResponse(found bool, err error) {
 	for _, rr := range r.rrs {
 		rr.resp <- GetResponse{found, err}
 		close(rr.resp)
@@ -43,7 +43,7 @@ type responseDoc struct {
 	Source json.RawMessage `json:"_source"`
 }
 
-func keyFromResponseDoc(doc responseDoc) string {
+func keyFromResponseDoc(doc *responseDoc) string {
 	return doc.Index + doc.ID
 }
 
@@ -51,35 +51,30 @@ func keyFromRR(rr reqresp) string {
 	return rr.req.Index + rr.req.DocumentID
 }
 
-func (r bulkRequest) add(rr reqresp) {
+func (r *bulkRequest) add(rr reqresp) {
 	r.rrs[keyFromRR(rr)] = rr
 }
 
-func (r bulkRequest) sendResponse(key string, found bool, err error) {
-	rr := r.rrs[key]
+func (r *bulkRequest) sendResponse(key string, found bool, err error) {
+	rr, keyFound := r.rrs[key]
+
+	if !keyFound {
+		panic(fmt.Sprintf("Key %s not found in reqresp %v.", key, r.rrs))
+	}
+
+	if rr.resp == nil {
+		panic(fmt.Sprintf("Invalid value for response channel for reqresp %v", rr))
+	}
+
+	log.Printf("Sending response to %v", rr.resp)
+	defer log.Printf("Done sending response")
+
 	rr.resp <- GetResponse{found, err}
 	close(rr.resp)
 	delete(r.rrs, key) // Is delete the best way to do this, or setting to nil?
 }
 
-func (r bulkRequest) getReqBody() io.Reader {
-	// Example
-	// {
-	//   "docs": [
-	//   {
-	//     "_index": "sample-index1",
-	//     "_id": "1"
-	//   },
-	//   {
-	//     "_index": "sample-index2",
-	//     "_id": "1",
-	//     "_source": {
-	//       "include": ["Length"]
-	//     }
-	//   }
-	//   ]
-	// }
-
+func (r *bulkRequest) getReqBody() io.Reader {
 	type source struct {
 		Include []string `json:"include"`
 	}
@@ -112,12 +107,14 @@ func (r bulkRequest) getReqBody() io.Reader {
 	var buffer bytes.Buffer
 
 	e := json.NewEncoder(io.Writer(&buffer))
-	e.Encode(bodyStruct)
+	if err := e.Encode(bodyStruct); err != nil {
+		panic("Error generating MGET request body.")
+	}
 
 	return io.Reader(&buffer)
 }
 
-func (r bulkRequest) getRequest() *opensearchapi.MgetRequest {
+func (r *bulkRequest) getRequest() *opensearchapi.MgetRequest {
 	body := r.getReqBody()
 
 	trueConst := true
@@ -132,6 +129,9 @@ func (r bulkRequest) getRequest() *opensearchapi.MgetRequest {
 }
 
 func decodeResponse(res *opensearchapi.Response) ([]responseDoc, error) {
+	// log.Printf("Decoding response to bulk GET")
+	// defer log.Printf("Done decoding response to bulk GET")
+
 	response := struct {
 		Docs []responseDoc `json:"docs"`
 	}{}
@@ -143,94 +143,68 @@ func decodeResponse(res *opensearchapi.Response) ([]responseDoc, error) {
 	return response.Docs, nil
 }
 
-func (r bulkRequest) decodeSource(src json.RawMessage, dst interface{}) error {
+func (r *bulkRequest) decodeSource(src json.RawMessage, dst interface{}) error {
 	// Wrap Unmarshall in mutex to prevent race conditions as dst might be shared!
 	r.decodeMutex.Lock()
-	err := json.Unmarshal(src, dst)
-	r.decodeMutex.Unlock()
+	defer r.decodeMutex.Unlock()
 
-	return err
+	return json.Unmarshal(src, dst)
 }
 
-func (r bulkRequest) processResponse(res *opensearchapi.Response) error {
-	// Example response
-	// {
-	//   "docs": [
-	//     {
-	//       "_index": "sample-index1",
-	//       "_type": "_doc",
-	//       "_id": "1",
-	//       "_version": 4,
-	//       "_seq_no": 5,
-	//       "_primary_term": 19,
-	//       "found": true,
-	//       "_source": {
-	//         "Title": "Batman Begins",
-	//         "Director": "Christopher Nolan"
-	//       }
-	//     },
-	//     {
-	//       "_index": "sample-index2",
-	//       "_type": "_doc",
-	//       "_id": "1",
-	//       "_version": 1,
-	//       "_seq_no": 6,
-	//       "_primary_term": 19,
-	//       "found": true,
-	//       "_source": {
-	//         "Title": "The Dark Knight",
-	//         "Director": "Christopher Nolan"
-	//       }
-	//     }
-	//   ]
-	// }
+// processResponseDoc returns found, error
+func (r *bulkRequest) processResponseDoc(d *responseDoc, dst interface{}) (bool, error) {
+	if d.Found {
+		if err := r.decodeSource(d.Source, dst); err != nil {
+			err = fmt.Errorf("error decoding source: %w", err)
+			return false, err
+		}
+
+		return true, nil
+	}
+
+	return false, nil
+}
+
+func (r *bulkRequest) processResponse(res *opensearchapi.Response) error {
+	log.Printf("Processing response to bulk GET")
+	defer log.Printf("Done processing response to bulk GET")
 
 	var err error
 
-	switch res.StatusCode {
-	case 200:
-		// Found
-
+	if res.StatusCode == 200 {
 		docs, err := decodeResponse(res)
 		if err != nil {
 			err = fmt.Errorf("error decoding body: %w", err)
-			r.sendBulkResponse(false, err)
 			return err
 		}
 
+		log.Printf("Processing %d returned documents", len(docs))
+
 		for _, d := range docs {
-			key := keyFromResponseDoc(d)
-
-			if d.Found == true {
-				if err = r.decodeSource(d.Source, r.rrs[key].dst); err != nil {
-					err = fmt.Errorf("error decoding source: %w", err)
-					r.sendResponse(key, false, err)
-					return err
-				}
-
-				r.sendResponse(key, true, nil)
-			} else {
-				r.sendResponse(key, false, nil)
-			}
+			key := keyFromResponseDoc(&d)
+			found, err := r.processResponseDoc(&d, r.rrs[key].dst)
+			r.sendResponse(key, found, err)
 		}
 
-	default:
-		if res.IsError() {
-			err = fmt.Errorf("%w: %s", ErrHTTP, res)
-		} else {
-			err = fmt.Errorf("Unexpected HTTP return code: %d", res.StatusCode)
-		}
+		return nil
 	}
 
-	r.sendBulkResponse(false, err)
+	// Non-200 status codes signify an error
+	if res.IsError() {
+		err = fmt.Errorf("%w: %s", ErrHTTP, res)
+	} else {
+		err = fmt.Errorf("Unexpected HTTP return code: %d", res.StatusCode)
+	}
+
 	return err
 }
 
-func (r bulkRequest) execute(ctx context.Context, client *opensearch.Client) error {
+func (r *bulkRequest) execute(ctx context.Context, client *opensearch.Client) error {
 	log.Printf("Performing bulk GET, %d elements", len(r.rrs))
 
 	res, err := r.getRequest().Do(ctx, client)
 	if err != nil {
+		err = fmt.Errorf("error executing request: %w", err)
 		r.sendBulkResponse(false, err)
 		return err
 	}
@@ -238,6 +212,7 @@ func (r bulkRequest) execute(ctx context.Context, client *opensearch.Client) err
 	defer res.Body.Close()
 
 	if err = r.processResponse(res); err != nil {
+		r.sendBulkResponse(false, err)
 		return err
 	}
 

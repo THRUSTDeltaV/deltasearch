@@ -145,45 +145,40 @@ func (s *BulkGetterSuite) TestPopulateBatch() {
 
 	b, err := s.bg.populateBatch(s.ctx, queue)
 
-	s.Len(b, 3)
+	s.Len(b.rrs, 4)
 	s.NoError(err)
 
-	s.Len(b[getKey(reqresp1)], 2)
+	s.Equal(reqresp1, b.rrs[keyFromRR(reqresp1)])
 }
 
 // TestProcessBatch is an integration test.
 func (s *BulkGetterSuite) TestProcessBatch() {
 	testFound := []byte(`{
-	  "took": 3,
-	  "timed_out": false,
-	  "_shards": {
-	    "total": 1,
-	    "successful": 1,
-	    "skipped": 0,
-	    "failed": 0
-	  },
-	  "hits": {
-	    "total": {
-	      "value": 1,
-	      "relation": "eq"
-	    },
-	    "max_score": 1.0,
-	    "hits": [
-	      {
-	        "_index": "test_index",
-	        "_type": "_doc",
-	        "_id": "1",
-	        "_score": 1.0,
-	        "_source": {
-	          "field1": "kaas",
-	          "field2": 15
-	        }
+	  "docs": [
+	    {
+	      "_index": "test_index_1",
+	      "_id": "1",
+	      "_version": 4,
+	      "_seq_no": 5,
+	      "_primary_term": 19,
+	      "found": true,
+	      "_source": {
+	        "field1": "kaas",
+	        "field2": 15
 	      }
-	    ]
-	  }
+	    },
+	    {
+	      "_index": "test_index_2",
+	      "_id": "2",
+	      "_version": 1,
+	      "_seq_no": 6,
+	      "_primary_term": 19,
+	      "found": false
+	    }
+	  ]
 	}`)
 
-	testURL := "/test_index/_search?_source_includes=field1%2Cfield2&preference=_local&size=2"
+	testURL := "/_mget?preference=_local&realtime=true"
 	s.mockAPIHandler.
 		On("Handle", "POST", testURL, mock.Anything).
 		Return(httpmock.Response{
@@ -200,7 +195,7 @@ func (s *BulkGetterSuite) TestProcessBatch() {
 
 	// Expected: found
 	req1 := GetRequest{
-		Index:      "test_index",
+		Index:      "test_index_1",
 		DocumentID: "1",
 		Fields:     []string{"field1", "field2"},
 	}
@@ -211,18 +206,16 @@ func (s *BulkGetterSuite) TestProcessBatch() {
 	dst2 := testType{}
 
 	req2 := GetRequest{
-		Index:      "test_index",
+		Index:      "test_index_2",
 		DocumentID: "2",
 		Fields:     []string{"field1", "field2"},
 	}
 
+	go func() {
+		s.NoError(s.bg.Work(s.ctx))
+	}()
+
 	resp2 := s.bg.Get(s.ctx, &req2, &dst2)
-
-	err := s.bg.processBatch(s.ctx)
-	s.NoError(err)
-
-	s.NotEmpty(resp1)
-	s.NotEmpty(resp2)
 
 	r1 := <-resp1
 	s.True(r1.Found)

@@ -14,7 +14,6 @@ import (
 type BulkRequestTestSuite struct {
 	suite.Suite
 	ctx context.Context
-	br  bulkRequest
 
 	req1   *GetRequest
 	rChan1 chan GetResponse
@@ -34,7 +33,7 @@ func (s *BulkRequestTestSuite) SetupTest() {
 	s.ctx = context.Background()
 
 	s.req1 = &GetRequest{
-		Index:      "test",
+		Index:      "test1",
 		Fields:     []string{"a1", "a2"},
 		DocumentID: "5",
 	}
@@ -42,76 +41,75 @@ func (s *BulkRequestTestSuite) SetupTest() {
 	s.reqresp1 = reqresp{s.req1, s.rChan1, &s.dst1}
 
 	s.req2 = &GetRequest{
-		Index:      "test",
-		Fields:     []string{"a1", "a2"},
+		Index:      "test2",
+		Fields:     []string{"b"},
 		DocumentID: "7",
 	}
 	s.rChan2 = make(chan GetResponse, 1)
 	s.reqresp2 = reqresp{s.req2, s.rChan2, &s.dst2}
 }
 
-func (s *BulkRequestTestSuite) TestGetSearchRequest() {
-	br := newBulkRequest()
+func (s *BulkRequestTestSuite) TestGetRequest() {
+	br := newBulkRequest(2)
 	br.add(s.reqresp1)
 	br.add(s.reqresp2)
 
-	sr := br.getSearchRequest()
-	s.Equal([]string{"test"}, sr.Index)
-	s.Equal([]string{"a1", "a2"}, sr.SourceIncludes)
+	r := br.getRequest()
 
-	var res struct {
-		Query struct {
-			Ids struct {
-				Values []string
-			}
-		}
-		Sort []string
+	s.Equal("_local", r.Preference)
+	s.True(*(r.Realtime))
+
+	type source struct {
+		Include []string `json:"include"`
 	}
 
-	err := json.NewDecoder(sr.Body).Decode(&res)
+	type doc struct {
+		Index  string `json:"_index"`
+		ID     string `json:"_id"`
+		Source source `json:"_source"`
+	}
+
+	bodyStruct := struct {
+		Docs []doc `json:"docs"`
+	}{}
+
+	err := json.NewDecoder(r.Body).Decode(&bodyStruct)
 	s.NoError(err)
 
-	values := res.Query.Ids.Values
-	s.Contains(values, "5")
-	s.Contains(values, "7")
-
-	sort := res.Sort
-	s.Equal("_doc", sort[0])
+	s.Equal(s.req1.Index, bodyStruct.Docs[0].Index)
+	s.Equal(s.req1.DocumentID, bodyStruct.Docs[0].ID)
+	s.Equal(s.req2.Index, bodyStruct.Docs[1].Index)
+	s.Equal(s.req2.DocumentID, bodyStruct.Docs[1].ID)
 }
 
 func (s *BulkRequestTestSuite) TestProcessResponseFound() {
-	br := newBulkRequest()
+	br := newBulkRequest(2)
 	br.add(s.reqresp1)
 	br.add(s.reqresp2)
 
 	respStr := `{
-	  "took": 3,
-	  "timed_out": false,
-	  "_shards": {
-	    "total": 1,
-	    "successful": 1,
-	    "skipped": 0,
-	    "failed": 0
-	  },
-	  "hits": {
-	    "total": {
-	      "value": 1,
-	      "relation": "eq"
-	    },
-	    "max_score": 1.0,
-	    "hits": [
-	      {
-	        "_index": "test",
-	        "_type": "_doc",
-	        "_id": "5",
-	        "_score": 1.0,
-	        "_source": {
-	          "a1": "kaas",
-	          "a2": 15
-	        }
+	  "docs": [
+	    {
+	      "_index": "test1",
+	      "_id": "5",
+	      "_version": 4,
+	      "_seq_no": 5,
+	      "_primary_term": 19,
+	      "found": true,
+	      "_source": {
+	        "a1": "kaas",
+	        "a2": 15
 	      }
-	    ]
-	  }
+	    },
+	    {
+	      "_index": "test2",
+	      "_id": "7",
+	      "_version": 1,
+	      "_seq_no": 6,
+	      "_primary_term": 19,
+	      "found": false
+	    }
+	  ]
 	}`
 
 	resp := opensearchapi.Response{
