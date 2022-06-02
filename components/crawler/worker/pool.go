@@ -79,8 +79,8 @@ func (w *Pool) getSearchClient() (*elasticsearch.Client, error) {
 		Transport: utils.GetHTTPTransport(w.dialer.DialContext, 100),
 		Debug:     false,
 
-		BulkGetterBatchSize:    48,
-		BulkGetterBatchTimeout: 200 * time.Millisecond,
+		BulkGetterBatchSize:    96,
+		BulkGetterBatchTimeout: 100 * time.Millisecond,
 	}
 
 	return elasticsearch.NewClient(clientConfig, w.Instrumentation)
