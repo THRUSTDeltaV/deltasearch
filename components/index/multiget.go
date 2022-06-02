@@ -29,8 +29,8 @@ func MultiGet(ctx context.Context, indexes []Index, id string, dst interface{}, 
 			}
 
 			if found {
-					cancel() // We're done
-					foundIdx = i
+				cancel() // We're done
+				foundIdx = i
 			}
 
 			return nil
