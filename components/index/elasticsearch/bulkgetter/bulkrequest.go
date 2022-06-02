@@ -66,8 +66,8 @@ func (r *bulkRequest) sendResponse(key string, found bool, err error) {
 		panic(fmt.Sprintf("Invalid value for response channel for reqresp %v", rr))
 	}
 
-	log.Printf("Sending response to %v", rr.resp)
-	defer log.Printf("Done sending response")
+	// log.Printf("Sending response to %v", rr.resp)
+	// defer log.Printf("Done sending response")
 
 	rr.resp <- GetResponse{found, err}
 	close(rr.resp)
@@ -166,8 +166,8 @@ func (r *bulkRequest) processResponseDoc(d *responseDoc, dst interface{}) (bool,
 }
 
 func (r *bulkRequest) processResponse(res *opensearchapi.Response) error {
-	log.Printf("Processing response to bulk GET")
-	defer log.Printf("Done processing response to bulk GET")
+	// log.Printf("Processing response to bulk GET")
+	// defer log.Printf("Done processing response to bulk GET")
 
 	var err error
 
@@ -178,7 +178,7 @@ func (r *bulkRequest) processResponse(res *opensearchapi.Response) error {
 			return err
 		}
 
-		log.Printf("Processing %d returned documents", len(docs))
+		// log.Printf("Processing %d returned documents", len(docs))
 
 		for _, d := range docs {
 			key := keyFromResponseDoc(&d)

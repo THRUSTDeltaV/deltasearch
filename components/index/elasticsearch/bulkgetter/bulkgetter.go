@@ -76,7 +76,7 @@ func (bg *BulkGetter) processBatch(ctx context.Context) error {
 }
 
 func (bg *BulkGetter) populateBatch(ctx context.Context, queue <-chan reqresp) (*bulkRequest, error) {
-	log.Println("Populating BulkGetter batch.")
+	// log.Println("Populating BulkGetter batch.")
 
 	b := newBulkRequest(bg.cfg.BatchSize)
 
@@ -85,11 +85,11 @@ func (bg *BulkGetter) populateBatch(ctx context.Context, queue <-chan reqresp) (
 		case <-ctx.Done():
 			return b, ctx.Err()
 		case <-time.After(bg.cfg.BatchTimeout):
-			log.Printf("Batch timeout, %d elements", len(b.rrs))
+			// log.Printf("Batch timeout, %d elements", len(b.rrs))
 
 			return b, nil
 		case rr := <-queue:
-			log.Printf("Batch add, %d elements", len(b.rrs))
+			// log.Printf("Batch add, %d elements", len(b.rrs))
 
 			b.add(rr)
 		}
