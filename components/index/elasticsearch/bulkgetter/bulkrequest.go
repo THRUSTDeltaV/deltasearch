@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"sync"
 
 	"github.com/opensearch-project/opensearch-go"
 	"github.com/opensearch-project/opensearch-go/opensearchapi"
@@ -16,14 +17,19 @@ import (
 // ErrHTTP represents non-404 errors in HTTP requests.
 var ErrHTTP = errors.New("HTTP Error")
 
-type bulkRequest map[string]reqresp
+type bulkRequest struct {
+	rrs         map[string]reqresp
+	decodeMutex sync.Mutex
+}
 
 func newBulkRequest(size int) bulkRequest {
-	return make(bulkRequest, size)
+	return bulkRequest{
+		rrs: make(map[string]reqresp, size),
+	}
 }
 
 func (r bulkRequest) sendBulkResponse(found bool, err error) {
-	for _, rr := range r {
+	for _, rr := range r.rrs {
 		rr.resp <- GetResponse{found, err}
 		close(rr.resp)
 		// Note that this does not do delete() as it should become irrelevant/unnecessary here.
@@ -46,14 +52,14 @@ func keyFromRR(rr reqresp) string {
 }
 
 func (r bulkRequest) add(rr reqresp) {
-	r[keyFromRR(rr)] = rr
+	r.rrs[keyFromRR(rr)] = rr
 }
 
 func (r bulkRequest) sendResponse(key string, found bool, err error) {
-	rr := r[key]
+	rr := r.rrs[key]
 	rr.resp <- GetResponse{found, err}
 	close(rr.resp)
-	delete(r, key) // Is delete the best way to do this, or setting to nil?
+	delete(r.rrs, key) // Is delete the best way to do this, or setting to nil?
 }
 
 func (r bulkRequest) getReqBody() io.Reader {
@@ -84,10 +90,10 @@ func (r bulkRequest) getReqBody() io.Reader {
 		Source source `json:"_source"`
 	}
 
-	docs := make([]doc, len(r))
+	docs := make([]doc, len(r.rrs))
 
 	i := 0
-	for _, rr := range r {
+	for _, rr := range r.rrs {
 		docs[i] = doc{
 			Index: rr.req.Index,
 			ID:    rr.req.DocumentID,
@@ -135,6 +141,15 @@ func decodeResponse(res *opensearchapi.Response) ([]responseDoc, error) {
 	}
 
 	return response.Docs, nil
+}
+
+func (r bulkRequest) decodeSource(src json.RawMessage, dst interface{}) error {
+	// Wrap Unmarshall in mutex to prevent race conditions as dst might be shared!
+	r.decodeMutex.Lock()
+	err := json.Unmarshal(src, dst)
+	r.decodeMutex.Unlock()
+
+	return err
 }
 
 func (r bulkRequest) processResponse(res *opensearchapi.Response) error {
@@ -187,7 +202,7 @@ func (r bulkRequest) processResponse(res *opensearchapi.Response) error {
 			key := keyFromResponseDoc(d)
 
 			if d.Found == true {
-				if err = json.Unmarshal(d.Source, r[key].dst); err != nil {
+				if err = r.decodeSource(d.Source, r.rrs[key].dst); err != nil {
 					err = fmt.Errorf("error decoding source: %w", err)
 					r.sendResponse(key, false, err)
 					return err
@@ -212,7 +227,7 @@ func (r bulkRequest) processResponse(res *opensearchapi.Response) error {
 }
 
 func (r bulkRequest) execute(ctx context.Context, client *opensearch.Client) error {
-	log.Printf("Performing bulk GET, %d elements", len(r))
+	log.Printf("Performing bulk GET, %d elements", len(r.rrs))
 
 	res, err := r.getRequest().Do(ctx, client)
 	if err != nil {
