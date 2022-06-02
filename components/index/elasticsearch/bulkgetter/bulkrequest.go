@@ -71,7 +71,8 @@ func (r *bulkRequest) sendResponse(key string, found bool, err error) {
 
 	rr.resp <- GetResponse{found, err}
 	close(rr.resp)
-	delete(r.rrs, key) // Is delete the best way to do this, or setting to nil?
+
+	// delete(r.rrs, key) // Is delete the best way to do this, or setting to nil?
 }
 
 func (r *bulkRequest) getReqBody() io.Reader {
