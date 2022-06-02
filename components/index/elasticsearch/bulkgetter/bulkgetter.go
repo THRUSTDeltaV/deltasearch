@@ -27,7 +27,7 @@ func New(cfg Config) *BulkGetter {
 
 	bg := BulkGetter{
 		cfg:   cfg,
-		queue: make(chan reqresp, cfg.BatchSize),
+		queue: make(chan reqresp, 5*cfg.BatchSize),
 	}
 
 	return &bg
