@@ -79,10 +79,6 @@ func (w *Pool) getSearchClient() (*elasticsearch.Client, error) {
 		Transport: utils.GetHTTPTransport(w.dialer.DialContext, 100),
 		Debug:     false,
 
-		// TODO: Make configurable.
-		BulkIndexerWorkers:    2,
-		BulkIndexerFlushBytes: 5 * 1024 * 1024, // 5 MB
-
 		BulkGetterBatchSize:    48,
 		BulkGetterBatchTimeout: 200 * time.Millisecond,
 	}
