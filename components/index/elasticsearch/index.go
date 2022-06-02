@@ -2,6 +2,7 @@ package elasticsearch
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log"
 
@@ -50,6 +51,9 @@ func (i *Index) index(
 	id string,
 	properties interface{},
 ) error {
+	ctx, span := i.c.Tracer.Start(ctx, "index.elasticsearch.index")
+	defer span.End()
+
 	var body io.Reader
 
 	if properties != nil {
@@ -76,13 +80,18 @@ func (i *Index) index(
 			item opensearchutil.BulkIndexerItem,
 			res opensearchutil.BulkIndexerResponseItem, err error,
 		) {
-			if err != nil {
-				log.Printf("Error flushing: %s (%s)", err, id)
-			} else {
-				log.Printf("Error flushing: %s: %s (%s)", res.Error.Type, res.Error.Reason, id)
+			if err == nil {
+				err = fmt.Errorf("Error flushing: %s: %s (%s)", res.Error.Type, res.Error.Reason, id)
 			}
+
+			span.RecordError(ctx, err, trace.WithErrorStatus(codes.Error))
+			log.Printf("Error flushing: %s (%s)", err, id)
+
 		},
 	}
+
+	ctx, span = i.c.Tracer.Start(ctx, "index.elasticsearch.bulkIndexer.Add")
+	defer span.End()
 
 	return i.c.bulkIndexer.Add(ctx, item)
 }
