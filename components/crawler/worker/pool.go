@@ -83,7 +83,7 @@ func (w *Pool) getSearchClient() (*elasticsearch.Client, error) {
 		BulkIndexerWorkers:    2,
 		BulkIndexerFlushBytes: 5 * 1024 * 1024, // 5 MB
 
-		BulkGetterBatchSize:    48,
+		BulkGetterBatchSize:    192,
 		BulkGetterBatchTimeout: 100 * time.Millisecond,
 	}
 
