@@ -32,7 +32,6 @@ func (r *bulkRequest) sendBulkResponse(found bool, err error) {
 	for _, rr := range r.rrs {
 		rr.resp <- GetResponse{found, err}
 		close(rr.resp)
-		// Note that this does not do delete() as it should become irrelevant/unnecessary here.
 	}
 }
 
@@ -44,6 +43,7 @@ type responseDoc struct {
 }
 
 func keyFromResponseDoc(doc *responseDoc) string {
+	// TODO: Resolve aliases; indexes in results are real indexes, whereas request indexes might be aliases!
 	return doc.Index + doc.ID
 }
 
@@ -71,8 +71,6 @@ func (r *bulkRequest) sendResponse(key string, found bool, err error) {
 
 	rr.resp <- GetResponse{found, err}
 	close(rr.resp)
-
-	// delete(r.rrs, key) // Is delete the best way to do this, or setting to nil?
 }
 
 func (r *bulkRequest) getReqBody() io.Reader {
