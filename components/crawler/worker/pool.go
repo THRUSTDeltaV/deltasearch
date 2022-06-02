@@ -80,7 +80,7 @@ func (w *Pool) getSearchClient() (*elasticsearch.Client, error) {
 		Debug:     false,
 
 		BulkGetterBatchSize:    96,
-		BulkGetterBatchTimeout: 100 * time.Millisecond,
+		BulkGetterBatchTimeout: 150 * time.Millisecond,
 	}
 
 	return elasticsearch.NewClient(clientConfig, w.Instrumentation)
