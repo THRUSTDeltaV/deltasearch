@@ -84,7 +84,7 @@ func (w *Pool) getSearchClient() (*elasticsearch.Client, error) {
 		BulkIndexerFlushBytes: 5 * 1024 * 1024, // 5 MB
 
 		BulkGetterBatchSize:    48,
-		BulkGetterBatchTimeout: 100 * time.Millisecond,
+		BulkGetterBatchTimeout: 200 * time.Millisecond,
 	}
 
 	return elasticsearch.NewClient(clientConfig, w.Instrumentation)
@@ -112,6 +112,7 @@ func (w *Pool) getIndexes(ctx context.Context) (*crawler.Indexes, error) {
 	}
 
 	// Start ES workers
+	go startSearchWorker(ctx, esClient)
 	go startSearchWorker(ctx, esClient)
 
 	return &crawler.Indexes{
